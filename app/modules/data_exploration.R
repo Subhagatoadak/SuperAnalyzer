@@ -4,16 +4,33 @@ library(moments)
 library(bs4Dash)   # For accordion components
 library(ggplot2)   # For plotting
 
+# A helper function to compute mode
+get_mode <- function(x) {
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
 # UI function for data exploration
 dataExplorationUI <- function(id) {
   ns <- NS(id)
   tagList(
+    # Accordion for Missing Value Analysis
+    bs4Accordion(
+      id = ns("missing_accordion"),
+      bs4AccordionItem(
+        id = ns("missing_values"),
+        title = "Missing Value Analysis",
+        collapsed = TRUE,
+        tableOutput(ns("missingTable")),
+        actionButton(ns("impute_button"), "Impute Missing Values")
+      )
+    ),
     h4("Pivot Table"),
-    # Fixed container to prevent overflowing
+    # Fixed container for pivot table
     div(style = "max-height:600px; overflow-y:auto;", 
         rpivotTableOutput(ns("pivotTable"))
     ),
-    # Accordion with two items: one for correlation/moments and one for distribution plots
+    # Accordion for Correlation/Moments & Distribution Plots
     bs4Accordion(
       id = ns("accordion1"),
       bs4AccordionItem(
@@ -22,7 +39,7 @@ dataExplorationUI <- function(id) {
         collapsed = TRUE,
         h4("Correlation Matrix"),
         tableOutput(ns("correlationTable")),
-        h4("Moments (Mean, Variance, Skewness, Kurtosis)"),
+        h4("Moments (Mean, Median, Mode, Variance, Skewness, Kurtosis)"),
         tableOutput(ns("statsTable"))
       ),
       bs4AccordionItem(
@@ -41,58 +58,119 @@ dataExplorationUI <- function(id) {
         selectInput(ns("disc_var"), "Select Discrete Variable", choices = NULL),
         fluidRow(
           column(12, plotOutput(ns("barPlot")))
-        )
+        ),
+        hr(),
+        h4("Outlier Analysis"),
+        verbatimTextOutput(ns("outlierAnalysis"))
       )
     )
   )
 }
 
 # Server function for data exploration
-# 'varTypes' is an additional reactive expression returning a named vector of variable types.
+# 'varTypes' is an optional reactive expression returning a named vector of variable types.
 dataExplorationServer <- function(id, dataset, varTypes = NULL) {
   moduleServer(
     id,
     function(input, output, session) {
       
-      # Render the pivot table
+      ### Missing Value Analysis
+      output$missingTable <- renderTable({
+        df <- dataset()
+        req(df)
+        missing_percent <- sapply(df, function(x) round(sum(is.na(x)) / length(x) * 100, 2))
+        data.frame(Variable = names(missing_percent), Missing_Percentage = missing_percent)
+      })
+      
+      # Imputation Modal for missing values
+      observeEvent(input$impute_button, {
+        req(dataset())
+        df <- dataset()
+        schema_text <- paste(capture.output(str(df)), collapse = "\n")
+        showModal(modalDialog(
+          title = "Missing Value Imputation",
+          tagList(
+            h4("Dataset Schema:"),
+            pre(schema_text),
+            p("Note: Your dataset is stored as variable 'df'."),
+            textAreaInput(session$ns("impute_code"), "Enter Imputation Code", value = "", rows = 5, width = "100%")
+          ),
+          footer = tagList(
+            actionButton(session$ns("run_impute"), "Run Imputation"),
+            modalButton("Close")
+          ),
+          size = "l"
+        ))
+      })
+      
+      # Run imputation code from modal
+      observeEvent(input$run_impute, {
+        req(dataset())
+        df <- dataset()
+        tryCatch({
+          df_imputed <- eval(parse(text = input$impute_code), envir = list(df = df))
+          if (!is.null(df_imputed)) {
+            # Update the dataset (assumes dataset is a reactiveVal)
+            dataset(df_imputed)
+            showNotification("Imputation applied.", type = "message")
+            removeModal()
+          }
+        }, error = function(e) {
+          showNotification(paste("Error:", e$message), type = "error")
+        })
+      })
+      
+      ### Pivot Table
       output$pivotTable <- renderRpivotTable({
         df <- dataset()
         req(df)
         rpivotTable(df)
       })
       
-      # Render the correlation matrix
+      ### Correlation Matrix (only continuous variables)
       output$correlationTable <- renderTable({
         df <- dataset()
         req(df)
-        numeric_cols <- sapply(df, is.numeric)
-        if (sum(numeric_cols) > 1) {
-          round(cor(df[, numeric_cols], use = "complete.obs"), 2)
+        if (!is.null(varTypes)) {
+          vt <- varTypes()
+          cont_vars <- names(vt)[vt == "Continuous"]
         } else {
-          data.frame(Message = "Not enough numeric columns for correlation matrix")
+          cont_vars <- names(df)[sapply(df, is.numeric)]
+        }
+        if (length(cont_vars) > 1) {
+          round(cor(df[, cont_vars, drop = FALSE], use = "complete.obs"), 2)
+        } else {
+          data.frame(Message = "Not enough continuous variables for correlation matrix")
         }
       })
       
-      # Render the moments table (mean, variance, skewness, kurtosis)
+      ### Moments Table (only for continuous variables)
       output$statsTable <- renderTable({
         df <- dataset()
         req(df)
-        numeric_cols <- sapply(df, is.numeric)
-        if (any(numeric_cols)) {
+        if (!is.null(varTypes)) {
+          vt <- varTypes()
+          cont_vars <- names(vt)[vt == "Continuous"]
+        } else {
+          cont_vars <- names(df)[sapply(df, is.numeric)]
+        }
+        if (length(cont_vars) > 0) {
           stats <- data.frame(
-            Variable = names(df)[numeric_cols],
-            Mean = sapply(df[, numeric_cols, drop = FALSE], function(x) round(mean(x, na.rm = TRUE), 2)),
-            Variance = sapply(df[, numeric_cols, drop = FALSE], function(x) round(var(x, na.rm = TRUE), 2)),
-            Skewness = sapply(df[, numeric_cols, drop = FALSE], function(x) round(skewness(x, na.rm = TRUE), 2)),
-            Kurtosis = sapply(df[, numeric_cols, drop = FALSE], function(x) round(kurtosis(x, na.rm = TRUE), 2))
+            Variable = cont_vars,
+            Mean = sapply(df[, cont_vars, drop = FALSE], function(x) round(mean(x, na.rm = TRUE), 2)),
+            Median = sapply(df[, cont_vars, drop = FALSE], function(x) round(median(x, na.rm = TRUE), 2)),
+            Mode = sapply(df[, cont_vars, drop = FALSE], function(x) get_mode(x)),
+            Variance = sapply(df[, cont_vars, drop = FALSE], function(x) round(var(x, na.rm = TRUE), 2)),
+            Skewness = sapply(df[, cont_vars, drop = FALSE], function(x) round(skewness(x, na.rm = TRUE), 2)),
+            Kurtosis = sapply(df[, cont_vars, drop = FALSE], function(x) round(kurtosis(x, na.rm = TRUE), 2))
           )
           stats
         } else {
-          data.frame(Message = "No numeric columns available for statistics")
+          data.frame(Message = "No continuous variables available for statistics")
         }
       })
       
-      # Update continuous and discrete variable select inputs
+      ### Update continuous and discrete variable select inputs
       observe({
         df <- dataset()
         req(df)
@@ -108,7 +186,9 @@ dataExplorationServer <- function(id, dataset, varTypes = NULL) {
         updateSelectInput(session, "disc_var", choices = discrete_vars)
       })
       
-      # Density plot for selected continuous variable
+      ### Continuous Variable Plots
+      
+      # Density plot
       output$densityPlot <- renderPlot({
         df <- dataset()
         req(df, input$cont_var)
@@ -117,7 +197,7 @@ dataExplorationServer <- function(id, dataset, varTypes = NULL) {
           labs(title = paste("Density Plot of", input$cont_var))
       })
       
-      # Violin plot for selected continuous variable
+      # Violin plot
       output$violinPlot <- renderPlot({
         df <- dataset()
         req(df, input$cont_var)
@@ -128,7 +208,7 @@ dataExplorationServer <- function(id, dataset, varTypes = NULL) {
           theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
       })
       
-      # Box plot for selected continuous variable
+      # Box plot
       output$boxPlot <- renderPlot({
         df <- dataset()
         req(df, input$cont_var)
@@ -139,7 +219,28 @@ dataExplorationServer <- function(id, dataset, varTypes = NULL) {
           theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
       })
       
-      # Bar plot for selected discrete variable
+      ### Outlier Analysis for selected continuous variable
+      output$outlierAnalysis <- renderPrint({
+        df <- dataset()
+        req(df, input$cont_var)
+        x <- df[[input$cont_var]]
+        x <- x[!is.na(x)]
+        Q1 <- quantile(x, 0.25)
+        Q3 <- quantile(x, 0.75)
+        IQR_val <- IQR(x)
+        lower_bound <- Q1 - 1.5 * IQR_val
+        upper_bound <- Q3 + 1.5 * IQR_val
+        outliers <- x[x < lower_bound | x > upper_bound]
+        cat("Outlier Analysis for", input$cont_var, "\n")
+        cat("Lower Bound:", lower_bound, "\n")
+        cat("Upper Bound:", upper_bound, "\n")
+        cat("Number of Outliers:", length(outliers), "\n")
+        if (length(outliers) > 0) {
+          cat("Outlier Values:", paste(round(outliers, 2), collapse = ", "), "\n")
+        }
+      })
+      
+      ### Discrete Variable Plot (Bar plot)
       output$barPlot <- renderPlot({
         df <- dataset()
         req(df, input$disc_var)
