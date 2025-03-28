@@ -22,7 +22,11 @@ dataExplorationUI <- function(id) {
         title = "Missing Value Analysis",
         collapsed = TRUE,
         tableOutput(ns("missingTable")),
-        actionButton(ns("impute_button"), "Impute Missing Values")
+        fluidRow(
+          column(4, actionButton(ns("impute_mean"), "Impute Using Mean")),
+          column(4, actionButton(ns("impute_median"), "Impute Using Median")),
+          column(4, actionButton(ns("impute_custom_btn"), "Custom Impute Code"))
+        )
       )
     ),
     h4("Pivot Table"),
@@ -61,7 +65,8 @@ dataExplorationUI <- function(id) {
         ),
         hr(),
         h4("Outlier Analysis"),
-        verbatimTextOutput(ns("outlierAnalysis"))
+        verbatimTextOutput(ns("outlierAnalysis")),
+        actionButton(ns("handle_outliers"), "Handle Outliers")
       )
     )
   )
@@ -82,7 +87,67 @@ dataExplorationServer <- function(id, dataset, varTypes = NULL) {
         data.frame(Variable = names(missing_percent), Missing_Percentage = missing_percent)
       })
       
-      # Imputation Modal for missing values is handled in your main app.
+      # Impute Using Mean
+      observeEvent(input$impute_mean, {
+        df <- dataset()
+        req(df)
+        for(col in names(df)) {
+          if(is.numeric(df[[col]]) && any(is.na(df[[col]]))) {
+            df[[col]][is.na(df[[col]])] <- mean(df[[col]], na.rm = TRUE)
+          }
+        }
+        dataset(df)
+        showNotification("Missing values imputed using mean.", type = "message")
+      })
+      
+      # Impute Using Median
+      observeEvent(input$impute_median, {
+        df <- dataset()
+        req(df)
+        for(col in names(df)) {
+          if(is.numeric(df[[col]]) && any(is.na(df[[col]]))) {
+            df[[col]][is.na(df[[col]])] <- median(df[[col]], na.rm = TRUE)
+          }
+        }
+        dataset(df)
+        showNotification("Missing values imputed using median.", type = "message")
+      })
+      
+      # Custom Imputation: Open Modal
+      observeEvent(input$impute_custom_btn, {
+        req(dataset())
+        df <- dataset()
+        schema_text <- paste(capture.output(str(df)), collapse = "\n")
+        showModal(modalDialog(
+          title = "Custom Missing Value Imputation",
+          tagList(
+            h4("Dataset Schema:"),
+            pre(schema_text),
+            p("Note: Your dataset is stored as 'df'. Write R code to impute missing values."),
+            textAreaInput(session$ns("impute_code"), "Enter Imputation Code", value = "", rows = 5, width = "100%")
+          ),
+          footer = tagList(
+            actionButton(session$ns("run_impute"), "Run Imputation"),
+            modalButton("Close")
+          ),
+          size = "l"
+        ))
+      })
+      
+      observeEvent(input$run_impute, {
+        req(dataset())
+        df <- dataset()
+        tryCatch({
+          df_imputed <- eval(parse(text = input$impute_code), envir = list(df = df))
+          if (!is.null(df_imputed)) {
+            dataset(df_imputed)
+            showNotification("Custom imputation applied.", type = "message")
+            removeModal()
+          }
+        }, error = function(e) {
+          showNotification(paste("Error:", e$message), type = "error")
+        })
+      })
       
       ### Pivot Table ###
       output$pivotTable <- renderRpivotTable({
@@ -200,7 +265,7 @@ dataExplorationServer <- function(id, dataset, varTypes = NULL) {
         cat("Lower Bound:", lower_bound, "\n")
         cat("Upper Bound:", upper_bound, "\n")
         cat("Number of Outliers:", length(outliers), "\n")
-        if (length(outliers) > 0) {
+        if(length(outliers) > 0) {
           cat("Outlier Values:", paste(round(outliers, 2), collapse = ", "), "\n")
         }
       })
@@ -209,7 +274,6 @@ dataExplorationServer <- function(id, dataset, varTypes = NULL) {
       output$barPlot <- renderPlotly({
         df <- dataset()
         req(df, input$disc_var)
-        # Create a frequency table for the selected variable
         freq <- as.data.frame(table(df[[input$disc_var]]))
         colnames(freq) <- c("Value", "Count")
         plot_ly(freq, x = ~Value, y = ~Count, type = 'bar') %>%
@@ -257,3 +321,4 @@ dataExplorationServer <- function(id, dataset, varTypes = NULL) {
     }
   )
 }
+
