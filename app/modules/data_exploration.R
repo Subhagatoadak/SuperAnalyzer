@@ -2,7 +2,7 @@ library(shiny)
 library(rpivotTable)
 library(moments)
 library(bs4Dash)   # For accordion components
-library(ggplot2)   # For plotting
+library(plotly)    # For interactive plotting
 
 # A helper function to compute mode
 get_mode <- function(x) {
@@ -49,15 +49,15 @@ dataExplorationUI <- function(id) {
         h4("Continuous Variable Plots"),
         selectInput(ns("cont_var"), "Select Continuous Variable", choices = NULL),
         fluidRow(
-          column(4, plotOutput(ns("densityPlot"))),
-          column(4, plotOutput(ns("violinPlot"))),
-          column(4, plotOutput(ns("boxPlot")))
+          column(4, plotlyOutput(ns("densityPlot"))),
+          column(4, plotlyOutput(ns("violinPlot"))),
+          column(4, plotlyOutput(ns("boxPlot")))
         ),
         hr(),
         h4("Discrete Variable Plot"),
         selectInput(ns("disc_var"), "Select Discrete Variable", choices = NULL),
         fluidRow(
-          column(12, plotOutput(ns("barPlot")))
+          column(12, plotlyOutput(ns("barPlot")))
         ),
         hr(),
         h4("Outlier Analysis"),
@@ -74,7 +74,7 @@ dataExplorationServer <- function(id, dataset, varTypes = NULL) {
     id,
     function(input, output, session) {
       
-      ### Missing Value Analysis
+      ### Missing Value Analysis ###
       output$missingTable <- renderTable({
         df <- dataset()
         req(df)
@@ -82,52 +82,16 @@ dataExplorationServer <- function(id, dataset, varTypes = NULL) {
         data.frame(Variable = names(missing_percent), Missing_Percentage = missing_percent)
       })
       
-      # Imputation Modal for missing values
-      observeEvent(input$impute_button, {
-        req(dataset())
-        df <- dataset()
-        schema_text <- paste(capture.output(str(df)), collapse = "\n")
-        showModal(modalDialog(
-          title = "Missing Value Imputation",
-          tagList(
-            h4("Dataset Schema:"),
-            pre(schema_text),
-            p("Note: Your dataset is stored as variable 'df'."),
-            textAreaInput(session$ns("impute_code"), "Enter Imputation Code", value = "", rows = 5, width = "100%")
-          ),
-          footer = tagList(
-            actionButton(session$ns("run_impute"), "Run Imputation"),
-            modalButton("Close")
-          ),
-          size = "l"
-        ))
-      })
+      # Imputation Modal for missing values is handled in your main app.
       
-      # Run imputation code from modal
-      observeEvent(input$run_impute, {
-        req(dataset())
-        df <- dataset()
-        tryCatch({
-          df_imputed <- eval(parse(text = input$impute_code), envir = list(df = df))
-          if (!is.null(df_imputed)) {
-            # Update the dataset (assumes dataset is a reactiveVal)
-            dataset(df_imputed)
-            showNotification("Imputation applied.", type = "message")
-            removeModal()
-          }
-        }, error = function(e) {
-          showNotification(paste("Error:", e$message), type = "error")
-        })
-      })
-      
-      ### Pivot Table
+      ### Pivot Table ###
       output$pivotTable <- renderRpivotTable({
         df <- dataset()
         req(df)
         rpivotTable(df)
       })
       
-      ### Correlation Matrix (only continuous variables)
+      ### Correlation Matrix (only continuous variables) ###
       output$correlationTable <- renderTable({
         df <- dataset()
         req(df)
@@ -144,7 +108,7 @@ dataExplorationServer <- function(id, dataset, varTypes = NULL) {
         }
       })
       
-      ### Moments Table (only for continuous variables)
+      ### Moments Table (only for continuous variables) ###
       output$statsTable <- renderTable({
         df <- dataset()
         req(df)
@@ -170,7 +134,7 @@ dataExplorationServer <- function(id, dataset, varTypes = NULL) {
         }
       })
       
-      ### Update continuous and discrete variable select inputs
+      ### Update continuous and discrete variable select inputs ###
       observe({
         df <- dataset()
         req(df)
@@ -186,40 +150,41 @@ dataExplorationServer <- function(id, dataset, varTypes = NULL) {
         updateSelectInput(session, "disc_var", choices = discrete_vars)
       })
       
-      ### Continuous Variable Plots
+      ### Continuous Variable Plots using plotly ###
       
-      # Density plot
-      output$densityPlot <- renderPlot({
+      # Density plot using plotly
+      output$densityPlot <- renderPlotly({
         df <- dataset()
         req(df, input$cont_var)
-        ggplot(df, aes_string(x = input$cont_var)) +
-          geom_density(fill = "lightblue", alpha = 0.5) +
-          labs(title = paste("Density Plot of", input$cont_var))
+        x <- df[[input$cont_var]]
+        dens <- density(x, na.rm = TRUE)
+        plot_ly(x = dens$x, y = dens$y, type = 'scatter', mode = 'lines') %>%
+          layout(title = paste("Density Plot of", input$cont_var),
+                 xaxis = list(title = input$cont_var),
+                 yaxis = list(title = "Density"))
       })
       
-      # Violin plot
-      output$violinPlot <- renderPlot({
+      # Violin plot using plotly
+      output$violinPlot <- renderPlotly({
         df <- dataset()
         req(df, input$cont_var)
-        df$dummy <- ""
-        ggplot(df, aes_string(x = "dummy", y = input$cont_var)) +
-          geom_violin(fill = "lightgreen", color = "black") +
-          labs(title = paste("Violin Plot of", input$cont_var), x = "") +
-          theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+        plot_ly(df, y = ~get(input$cont_var), type = 'violin',
+                box = list(visible = TRUE),
+                meanline = list(visible = TRUE)) %>%
+          layout(title = paste("Violin Plot of", input$cont_var),
+                 yaxis = list(title = input$cont_var))
       })
       
-      # Box plot
-      output$boxPlot <- renderPlot({
+      # Box plot using plotly
+      output$boxPlot <- renderPlotly({
         df <- dataset()
         req(df, input$cont_var)
-        df$dummy <- ""
-        ggplot(df, aes_string(x = "dummy", y = input$cont_var)) +
-          geom_boxplot(fill = "lightcoral", color = "black") +
-          labs(title = paste("Box Plot of", input$cont_var), x = "") +
-          theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+        plot_ly(df, y = ~get(input$cont_var), type = 'box') %>%
+          layout(title = paste("Box Plot of", input$cont_var),
+                 yaxis = list(title = input$cont_var))
       })
       
-      ### Outlier Analysis for selected continuous variable
+      ### Outlier Analysis for selected continuous variable ###
       output$outlierAnalysis <- renderPrint({
         df <- dataset()
         req(df, input$cont_var)
@@ -240,17 +205,55 @@ dataExplorationServer <- function(id, dataset, varTypes = NULL) {
         }
       })
       
-      ### Discrete Variable Plot (Bar plot)
-      output$barPlot <- renderPlot({
+      ### Discrete Variable Plot (Bar plot) using plotly ###
+      output$barPlot <- renderPlotly({
         df <- dataset()
         req(df, input$disc_var)
-        df[[input$disc_var]] <- as.factor(df[[input$disc_var]])
-        ggplot(df, aes_string(x = input$disc_var)) +
-          geom_bar(fill = "steelblue") +
-          labs(title = paste("Bar Plot of", input$disc_var),
-               x = input$disc_var, y = "Count") +
-          theme_minimal()
+        # Create a frequency table for the selected variable
+        freq <- as.data.frame(table(df[[input$disc_var]]))
+        colnames(freq) <- c("Value", "Count")
+        plot_ly(freq, x = ~Value, y = ~Count, type = 'bar') %>%
+          layout(title = paste("Bar Plot of", input$disc_var),
+                 xaxis = list(title = input$disc_var),
+                 yaxis = list(title = "Count"))
       })
+      
+      ### Outlier Handling Modal ###
+      observeEvent(input$handle_outliers, {
+        req(dataset())
+        df <- dataset()
+        schema_text <- paste(capture.output(str(df)), collapse = "\n")
+        showModal(modalDialog(
+          title = "Outlier Handling",
+          tagList(
+            h4("Dataset Schema:"),
+            pre(schema_text),
+            p("Note: Your dataset is stored as 'df'. Write R code to handle outliers."),
+            textAreaInput(session$ns("outlier_code"), "Enter Outlier Handling Code", value = "", rows = 5, width = "100%")
+          ),
+          footer = tagList(
+            actionButton(session$ns("run_outlier"), "Run Outlier Handling"),
+            modalButton("Close")
+          ),
+          size = "l"
+        ))
+      })
+      
+      observeEvent(input$run_outlier, {
+        req(dataset())
+        df <- dataset()
+        tryCatch({
+          df_out <- eval(parse(text = input$outlier_code), envir = list(df = df))
+          if(!is.null(df_out)) {
+            dataset(df_out)
+            showNotification("Outlier handling applied.", type = "message")
+            removeModal()
+          }
+        }, error = function(e) {
+          showNotification(paste("Error:", e$message), type = "error")
+        })
+      })
+      
     }
   )
 }

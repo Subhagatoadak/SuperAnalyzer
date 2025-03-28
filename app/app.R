@@ -59,15 +59,11 @@ ui <- bs4DashPage(
             solidHeader = TRUE,
             fluidRow(
               column(
-                width = 4,
+                width = 12,
                 fileInput("file", "Upload CSV Data", accept = ".csv"),
                 actionButton("show_code", "Show Transformation Editor"),
                 br(), br(),
                 actionButton("set_var_types", "Set Variable Types")
-              ),
-              column(
-                width = 8,
-                DTOutput("data_table")
               )
             )
           )
@@ -172,7 +168,15 @@ server <- function(input, output, session) {
   observeEvent(input$data_table_cell_edit, {
     info <- input$data_table_cell_edit
     df <- data_reactive()
-    df[info$row, info$col] <- info$value
+    # Determine the column name from the cell edit info
+    colName <- names(df)[as.numeric(info$col)]
+    # If the column is numeric, convert the new value to numeric.
+    if(is.numeric(df[[colName]])) {
+      newValue <- as.numeric(info$value)
+    } else {
+      newValue <- info$value
+    }
+    df[as.numeric(info$row), as.numeric(info$col)] <- newValue
     data_reactive(df)
   })
   
@@ -186,6 +190,12 @@ server <- function(input, output, session) {
       title = "Transformation Editor",
       tagList(
         h4(paste("Dataset:", datasetName)),
+   
+        # Wrap the data table in a div that scrolls if it overflows
+        div(style = "max-height:500px; overflow-y:auto;",
+            DTOutput("data_table")
+        )
+        ,
         pre(schema_text),
         p("Note: The dataset is stored in the variable 'df'."),
         textAreaInput("transformation_code", "Enter Transformation Code", value = "", rows = 5, width = "100%")
