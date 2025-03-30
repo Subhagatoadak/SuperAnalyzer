@@ -1,20 +1,21 @@
+# data_exploration.R
 library(shiny)
+library(bs4Dash)
 library(rpivotTable)
+library(plotly)
+library(DT)
 library(moments)
-library(bs4Dash)   # For accordion components
-library(plotly)    # For interactive plotting
 
-# A helper function to compute mode
+# Helper function to compute the mode
 get_mode <- function(x) {
   ux <- unique(x)
   ux[which.max(tabulate(match(x, ux)))]
 }
 
-# UI function for data exploration
+# UI for the Data Exploration module
 dataExplorationUI <- function(id) {
   ns <- NS(id)
   tagList(
-    # Accordion for Missing Value Analysis
     bs4Accordion(
       id = ns("missing_accordion"),
       bs4AccordionItem(
@@ -30,11 +31,9 @@ dataExplorationUI <- function(id) {
       )
     ),
     h4("Pivot Table"),
-    # Fixed container for pivot table
     div(style = "max-height:600px; overflow-y:auto;", 
         rpivotTableOutput(ns("pivotTable"))
     ),
-    # Accordion for Correlation/Moments & Distribution Plots
     bs4Accordion(
       id = ns("accordion1"),
       bs4AccordionItem(
@@ -72,14 +71,11 @@ dataExplorationUI <- function(id) {
   )
 }
 
-# Server function for data exploration
-# 'varTypes' is an optional reactive expression returning a named vector of variable types.
+# Server for the Data Exploration module
 dataExplorationServer <- function(id, dataset, varTypes = NULL) {
   moduleServer(
     id,
     function(input, output, session) {
-      
-      ### Missing Value Analysis ###
       output$missingTable <- renderTable({
         df <- dataset()
         req(df)
@@ -87,12 +83,11 @@ dataExplorationServer <- function(id, dataset, varTypes = NULL) {
         data.frame(Variable = names(missing_percent), Missing_Percentage = missing_percent)
       })
       
-      # Impute Using Mean
       observeEvent(input$impute_mean, {
         df <- dataset()
         req(df)
         for(col in names(df)) {
-          if(is.numeric(df[[col]]) && any(is.na(df[[col]]))) {
+          if (is.numeric(df[[col]]) && any(is.na(df[[col]]))) {
             df[[col]][is.na(df[[col]])] <- mean(df[[col]], na.rm = TRUE)
           }
         }
@@ -100,12 +95,11 @@ dataExplorationServer <- function(id, dataset, varTypes = NULL) {
         showNotification("Missing values imputed using mean.", type = "message")
       })
       
-      # Impute Using Median
       observeEvent(input$impute_median, {
         df <- dataset()
         req(df)
         for(col in names(df)) {
-          if(is.numeric(df[[col]]) && any(is.na(df[[col]]))) {
+          if (is.numeric(df[[col]]) && any(is.na(df[[col]]))) {
             df[[col]][is.na(df[[col]])] <- median(df[[col]], na.rm = TRUE)
           }
         }
@@ -113,7 +107,6 @@ dataExplorationServer <- function(id, dataset, varTypes = NULL) {
         showNotification("Missing values imputed using median.", type = "message")
       })
       
-      # Custom Imputation: Open Modal
       observeEvent(input$impute_custom_btn, {
         req(dataset())
         df <- dataset()
@@ -149,14 +142,12 @@ dataExplorationServer <- function(id, dataset, varTypes = NULL) {
         })
       })
       
-      ### Pivot Table ###
       output$pivotTable <- renderRpivotTable({
         df <- dataset()
         req(df)
         rpivotTable(df)
       })
       
-      ### Correlation Matrix (only continuous variables) ###
       output$correlationTable <- renderTable({
         df <- dataset()
         req(df)
@@ -173,7 +164,6 @@ dataExplorationServer <- function(id, dataset, varTypes = NULL) {
         }
       })
       
-      ### Moments Table (only for continuous variables) ###
       output$statsTable <- renderTable({
         df <- dataset()
         req(df)
@@ -199,7 +189,6 @@ dataExplorationServer <- function(id, dataset, varTypes = NULL) {
         }
       })
       
-      ### Update continuous and discrete variable select inputs ###
       observe({
         df <- dataset()
         req(df)
@@ -215,9 +204,6 @@ dataExplorationServer <- function(id, dataset, varTypes = NULL) {
         updateSelectInput(session, "disc_var", choices = discrete_vars)
       })
       
-      ### Continuous Variable Plots using plotly ###
-      
-      # Density plot using plotly
       output$densityPlot <- renderPlotly({
         df <- dataset()
         req(df, input$cont_var)
@@ -229,7 +215,6 @@ dataExplorationServer <- function(id, dataset, varTypes = NULL) {
                  yaxis = list(title = "Density"))
       })
       
-      # Violin plot using plotly
       output$violinPlot <- renderPlotly({
         df <- dataset()
         req(df, input$cont_var)
@@ -240,7 +225,6 @@ dataExplorationServer <- function(id, dataset, varTypes = NULL) {
                  yaxis = list(title = input$cont_var))
       })
       
-      # Box plot using plotly
       output$boxPlot <- renderPlotly({
         df <- dataset()
         req(df, input$cont_var)
@@ -249,7 +233,6 @@ dataExplorationServer <- function(id, dataset, varTypes = NULL) {
                  yaxis = list(title = input$cont_var))
       })
       
-      ### Outlier Analysis for selected continuous variable ###
       output$outlierAnalysis <- renderPrint({
         df <- dataset()
         req(df, input$cont_var)
@@ -265,12 +248,11 @@ dataExplorationServer <- function(id, dataset, varTypes = NULL) {
         cat("Lower Bound:", lower_bound, "\n")
         cat("Upper Bound:", upper_bound, "\n")
         cat("Number of Outliers:", length(outliers), "\n")
-        if(length(outliers) > 0) {
+        if (length(outliers) > 0) {
           cat("Outlier Values:", paste(round(outliers, 2), collapse = ", "), "\n")
         }
       })
       
-      ### Discrete Variable Plot (Bar plot) using plotly ###
       output$barPlot <- renderPlotly({
         df <- dataset()
         req(df, input$disc_var)
@@ -282,7 +264,6 @@ dataExplorationServer <- function(id, dataset, varTypes = NULL) {
                  yaxis = list(title = "Count"))
       })
       
-      ### Outlier Handling Modal ###
       observeEvent(input$handle_outliers, {
         req(dataset())
         df <- dataset()
@@ -308,7 +289,7 @@ dataExplorationServer <- function(id, dataset, varTypes = NULL) {
         df <- dataset()
         tryCatch({
           df_out <- eval(parse(text = input$outlier_code), envir = list(df = df))
-          if(!is.null(df_out)) {
+          if (!is.null(df_out)) {
             dataset(df_out)
             showNotification("Outlier handling applied.", type = "message")
             removeModal()
@@ -317,8 +298,6 @@ dataExplorationServer <- function(id, dataset, varTypes = NULL) {
           showNotification(paste("Error:", e$message), type = "error")
         })
       })
-      
     }
   )
 }
-
