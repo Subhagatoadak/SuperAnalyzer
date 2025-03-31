@@ -63,8 +63,8 @@ ui <- bs4DashPage(
                      br(),
                      DTOutput("data_table"),
                      br(),
-                     actionButton("go_to_initial", "Revert to Initial Data"),
-                     br(), br(),
+                     actionButton("revert_initial", "Revert to Initial Data"),
+                     #br(), br(),
                      h4("Transformation Log"),
                      verbatimTextOutput("transformation_log"),
                      downloadButton("download_log", "Download Log")
