@@ -66,13 +66,23 @@ dataExplorationUI <- function(id) {
         h4("Outlier Analysis"),
         verbatimTextOutput(ns("outlierAnalysis")),
         actionButton(ns("handle_outliers"), "Handle Outliers")
+      ),
+      # New Accordion for Custom Analysis
+      bs4AccordionItem(
+        id = ns("custom_analysis"),
+        title = "Custom Analysis Code",
+        collapsed = TRUE,
+        textAreaInput(ns("custom_code"), "Enter R Code", value = "", rows = 5, width = "100%"),
+        actionButton(ns("run_custom_analysis"), "Run Custom Analysis"),
+        verbatimTextOutput(ns("custom_analysis_output"))
       )
     )
   )
 }
 
 # Server for the Data Exploration module
-dataExplorationServer <- function(id, dataset, varTypes = NULL) {
+# Now accepts an extra parameter "log_func" to log code and output.
+dataExplorationServer <- function(id, dataset, varTypes = NULL, log_func = function(msg){}) {
   moduleServer(
     id,
     function(input, output, session) {
@@ -86,25 +96,27 @@ dataExplorationServer <- function(id, dataset, varTypes = NULL) {
       observeEvent(input$impute_mean, {
         df <- dataset()
         req(df)
-        for(col in names(df)) {
+        for (col in names(df)) {
           if (is.numeric(df[[col]]) && any(is.na(df[[col]]))) {
             df[[col]][is.na(df[[col]])] <- mean(df[[col]], na.rm = TRUE)
           }
         }
         dataset(df)
         showNotification("Missing values imputed using mean.", type = "message")
+        log_func("Missing values imputed using mean.")
       })
       
       observeEvent(input$impute_median, {
         df <- dataset()
         req(df)
-        for(col in names(df)) {
+        for (col in names(df)) {
           if (is.numeric(df[[col]]) && any(is.na(df[[col]]))) {
             df[[col]][is.na(df[[col]])] <- median(df[[col]], na.rm = TRUE)
           }
         }
         dataset(df)
         showNotification("Missing values imputed using median.", type = "message")
+        log_func("Missing values imputed using median.")
       })
       
       observeEvent(input$impute_custom_btn, {
@@ -135,6 +147,7 @@ dataExplorationServer <- function(id, dataset, varTypes = NULL) {
           if (!is.null(df_imputed)) {
             dataset(df_imputed)
             showNotification("Custom imputation applied.", type = "message")
+            log_func(paste("Custom imputation applied using code:", input$impute_code))
             removeModal()
           }
         }, error = function(e) {
@@ -292,11 +305,27 @@ dataExplorationServer <- function(id, dataset, varTypes = NULL) {
           if (!is.null(df_out)) {
             dataset(df_out)
             showNotification("Outlier handling applied.", type = "message")
+            log_func(paste("Outlier handling applied using code:", input$outlier_code))
             removeModal()
           }
         }, error = function(e) {
           showNotification(paste("Error:", e$message), type = "error")
         })
+      })
+      
+      # New observer for custom analysis code
+      observeEvent(input$run_custom_analysis, {
+        req(dataset())
+        df <- dataset()
+        result <- tryCatch({
+          eval(parse(text = input$custom_code), envir = list(df = df))
+        }, error = function(e) { e })
+        output$custom_analysis_output <- renderPrint({
+          result
+        })
+        # Log the custom code and its output using the provided log_func
+        log_func(paste("Custom Analysis Code:", input$custom_code, 
+                       "\nResult:", paste(capture.output(print(result)), collapse = "\n")))
       })
     }
   )

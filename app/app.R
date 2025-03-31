@@ -64,6 +64,7 @@ ui <- bs4DashPage(
                      DTOutput("data_table"),
                      br(),
                      actionButton("revert_initial", "Revert to Initial Data"),
+                     #actionButton("revert_previous", "Revert to Previous Data"),
                      #br(), br(),
                      h4("Transformation Log"),
                      verbatimTextOutput("transformation_log"),
@@ -105,6 +106,8 @@ server <- function(input, output, session) {
   data_reactive <- reactiveVal(NULL)
   initial_df <- reactiveVal(NULL)
   variable_types <- reactiveVal(NULL)
+  # Reactive value to store previous state before a transformation is applied
+  previous_df <- reactiveVal(NULL)
   
   # Create a reactive value to store transformation log
   transformation_log <- reactiveVal("")
@@ -153,6 +156,7 @@ server <- function(input, output, session) {
   observeEvent(input$show_code, {
     req(data_reactive())
     df <- data_reactive()
+    previous_df(df)
     datasetName <- if (!is.null(input$file)) input$file$name else "Dataset"
     schema_text <- paste(capture.output(str(df)), collapse = "\n")
     showModal(modalDialog(
@@ -167,6 +171,7 @@ server <- function(input, output, session) {
       footer = tagList(
         actionButton("run_transformation_modal", "Run Transformation"),
         actionButton("revert_initial", "Revert to Initial"),
+        #actionButton("revert_previous", "Revert to Previous Data"),
         modalButton("Close")
       ),
       size = "l"
@@ -176,6 +181,7 @@ server <- function(input, output, session) {
   observeEvent(input$run_transformation_modal, {
     req(data_reactive())
     df <- data_reactive()
+    previous_df(df)
     tryCatch({
       df_transformed <- eval(parse(text = input$transformation_code), envir = list(df = df))
       if (!is.null(df_transformed)) {
@@ -194,7 +200,12 @@ server <- function(input, output, session) {
     log_message("Reverted to initial state.")
     showNotification("Reverted to initial state.", type = "message")
   })
-  
+  observeEvent(input$revert_previous, {
+    req(previous_df())
+    data_reactive(previous_df())
+    log_message("Reverted to previous state.")
+    showNotification("Reverted to previous state.", type = "message")
+  })
   # Variable Type Setting (using drag-and-drop via sortable)
   observeEvent(input$set_var_types, {
     req(data_reactive())
