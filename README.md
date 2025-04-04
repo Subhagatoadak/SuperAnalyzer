@@ -1,4 +1,4 @@
-# 🚀 SuperAnalyzer: The Ultimate Bayesian Modeling & Data Exploration App (in R)
+# 🚀 SuperAnalyzer: The Ultimate Modeling & Data Exploration App (in R)
 
 > ✨ Built with love by a passionate data scientist who refuses to let R fade into the shadows.
 
