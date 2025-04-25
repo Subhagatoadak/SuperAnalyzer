@@ -78,7 +78,7 @@ cd SuperAnalyzer
 
 ### 2. Set Your OpenAI Key
 
-Create a `.Renviron` file in your project or home directory:
+Create a `.env` file in your project or home directory:
 
 ```dotenv
 OPENAI_API_KEY=your_openai_key_here
