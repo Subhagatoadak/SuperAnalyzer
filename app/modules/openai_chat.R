@@ -3,6 +3,35 @@ library(shiny)
 library(bs4Dash)
 library(httr)
 library(jsonlite)
+library(dotenv)
+
+# --- Debug helper: print working directory and .env status
+message("[DEBUG] Shiny app working dir: ", getwd())
+message("[DEBUG] .env exists: ", file.exists(".env"))
+if (file.exists(".env")) {
+  message("[DEBUG] .env contents:\n", paste(readLines(".env"), collapse = "\n"))
+  # Load .env
+  load_dot_env(file = ".env")
+  # Fallback manual parse if dotenv didn't set it
+  if (identical(Sys.getenv("OPENAI_API_KEY"), "") || is.na(Sys.getenv("OPENAI_API_KEY"))) {
+    lines <- readLines(".env")
+    key_line <- lines[grepl("^OPENAI_API_KEY=", lines)]
+    if (length(key_line) >= 1) {
+      # Extract value after = and trim whitespace/newlines
+      raw_key <- sub("^OPENAI_API_KEY=", "", key_line[1])
+      trimmed_key <- trimws(raw_key, whitespace = "[ \t\r\n]")
+      Sys.setenv(OPENAI_API_KEY = trimmed_key)
+      message("[DEBUG] Manual parse set OPENAI_API_KEY (first 5 chars): ", substr(trimmed_key,1,5), "... length=", nchar(trimmed_key))
+    }
+  }
+  # Always trim any existing env key
+  env_key <- Sys.getenv("OPENAI_API_KEY")
+  env_key_trimmed <- trimws(env_key, whitespace = "[ \t\r\n]")
+  if (!identical(env_key, env_key_trimmed)) Sys.setenv(OPENAI_API_KEY = env_key_trimmed)
+  message("[DEBUG] Final OPENAI_API_KEY (first 5 chars): ", substr(env_key_trimmed,1,5), "... length=", nchar(env_key_trimmed))
+} else {
+  warning(".env file not found in app root. Make sure your OPENAI_API_KEY is available.")
+}
 
 # UI for the OpenAI Chat module
 openaiChatUI <- function(id) {
@@ -51,39 +80,55 @@ openaiChatServer <- function(id) {
         req(input$openai_input, input$openai_model)
         query <- input$openai_input
         model_choice <- input$openai_model
+        system_prompt <- input$system_prompt %||% "You are a helpful assistant."
         showNotification("Sending query to OpenAI...", type = "message")
         
+        # Retrieve and debug API key
         api_key <- Sys.getenv("OPENAI_API_KEY")
-        if (api_key == "") {
-          showNotification("OPENAI_API_KEY not set", type = "error")
+        api_key <- trimws(api_key, whitespace = "[ \t\r\n]")
+        
+        if (identical(api_key, "") || is.na(api_key)) {
+          showNotification("OPENAI_API_KEY not set or empty (HTTP 401)", type = "error")
           return(NULL)
         }
         
         rv_chat$messages <- c(rv_chat$messages, list(list(role = "user", text = query)))
         
+        # Perform POST request
         res <- tryCatch({
           POST(
             url = "https://api.openai.com/v1/chat/completions",
             add_headers(
-              "Authorization" = paste("Bearer", api_key),
-              "Content-Type" = "application/json"
+              Authorization = paste0("Bearer ", api_key),
+              `Content-Type` = "application/json"
             ),
-            body = toJSON(list(
-              model = model_choice,
-              messages = list(list(role = "user", content = query))
-            ), auto_unbox = TRUE)
+            body = toJSON(
+              list(
+                model = model_choice,
+                messages = list(list(role = "system", content = system_prompt),
+                                list(role = "user", content = query))
+              ),
+              auto_unbox = TRUE
+            )
           )
         }, error = function(e) {
           showNotification(paste("POST request failed:", e$message), type = "error")
           return(NULL)
         })
         
+        # Check for HTTP errors
         if (is.null(res)) return(NULL)
         if (http_error(res)) {
-          showNotification(paste("HTTP error:", status_code(res)), type = "error")
+          code <- status_code(res)
+          if (code == 401) {
+            showNotification("Unauthorized (401): Key appears invalid. Did you rotate or revoke it?", type = "error")
+          } else {
+            showNotification(paste("HTTP error:", code), type = "error")
+          }
           return(NULL)
         }
         
+        # Parse and display response
         response_content <- tryCatch({
           content(res, as = "parsed")
         }, error = function(e) {
@@ -91,16 +136,7 @@ openaiChatServer <- function(id) {
           return(NULL)
         })
         
-        if (is.null(response_content) || is.null(response_content$choices)) {
-          showNotification("No valid response from OpenAI", type = "error")
-          return(NULL)
-        }
-        
-        answer <- response_content$choices[[1]]$message$content
-        if (is.null(answer)) {
-          answer <- "No answer returned."
-        }
-        
+        answer <- response_content$choices[[1]]$message$content %||% "No answer returned."
         rv_chat$messages <- c(rv_chat$messages, list(list(role = "assistant", text = answer)))
         showNotification("Response received from OpenAI.", type = "message")
       })
