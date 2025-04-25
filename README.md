@@ -36,7 +36,7 @@ SuperAnalyzer is built as a fully modular Shiny dashboard, letting you explore a
 - 📈 **Modeling Methods**
   - Linear Regression
   - Logistic Regression
-  - Full Bayesian Regression using `rstan`, `brms`, or `bayesplot`
+  - more mdthods please check
   - Custom R script runner with real-time feedback
 
 - 🤖 **OpenAI Chat (Optional)**
@@ -78,7 +78,7 @@ cd SuperAnalyzer
 
 ### 2. Set Your OpenAI Key
 
-Create a `.env` file in your project or home directory:
+Create a `.env` file in the app folder:
 
 ```dotenv
 OPENAI_API_KEY=your_openai_key_here
