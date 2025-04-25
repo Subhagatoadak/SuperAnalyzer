@@ -18,7 +18,7 @@ RUN apt-get update && apt-get install -y \
 # For example: docker run -p 3838:3838 -e OPENAI_API_KEY=your_key superanalyzer
 
 # Install required R packages
-RUN R -e "install.packages(c('shiny', 'bs4Dash', 'shinyjs', 'DT', 'sortable', 'httr', 'jsonlite', 'rpivotTable', 'moments', 'rstan', 'bayesplot', 'ggplot2'), repos='http://cran.rstudio.com/')"
+RUN R -e "install.packages(c('shiny', 'bs4Dash', 'shinyjs', 'DT', 'sortable', 'httr', 'jsonlite', 'rpivotTable', 'moments', 'rstan', 'bayesplot', 'ggplot2','dbscan','evaluate','shinyAce','pls'), repos='http://cran.rstudio.com/')"
 
 # Copy the Shiny app into the container
 COPY app/ /srv/shiny-server/app/
